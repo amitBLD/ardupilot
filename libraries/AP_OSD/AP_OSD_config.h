@@ -7,6 +7,10 @@
 #define OSD_ENABLED 1
 #endif
 
+#ifndef BOTOSD_ENABLED
+#define BOTOSD_ENABLED 0
+#endif
+
 #ifndef HAL_WITH_OSD_BITMAP
 #define HAL_WITH_OSD_BITMAP OSD_ENABLED && (defined(HAL_WITH_SPI_OSD) || defined(WITH_SITL_OSD))
 #endif

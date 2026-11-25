@@ -142,21 +142,30 @@ AP_OSD_MAX7456::AP_OSD_MAX7456(AP_OSD &osd, AP_HAL::OwnPtr<AP_HAL::Device> dev):
 
 bool AP_OSD_MAX7456::init()
 {
+#if !BOTOSD_ENABLED
     uint8_t status = 0xFF;
+#endif
 
     _dev->get_semaphore()->take_blocking();
     _dev->write_register(MAX7456ADD_VM0, MAX7456_RESET);
     hal.scheduler->delay(1);
+#if !BOTOSD_ENABLED
     _dev->read_registers(MAX7456ADD_VM0|MAX7456ADD_READ, &status, 1);
+#endif
     _dev->get_semaphore()->give();
+#if BOTOSD_ENABLED
+    return true;
+#else
     if (status != 0) {
         return false;
     }
     return update_font();
+#endif
 }
 
 bool AP_OSD_MAX7456::update_font()
 {
+    uint8_t updated_chars = 0;
     last_font = get_font_num();
     FileData *fd = load_font_data(last_font);
 
@@ -167,7 +176,7 @@ bool AP_OSD_MAX7456::update_font()
     const uint8_t *font_data = fd->data;
     uint32_t font_size = fd->length;
     if (font_size != NVM_RAM_SIZE * 256) {
-        GCS_SEND_TEXT(MAV_SEVERITY_ERROR, "AP_OSD: bad font size %u", unsigned(font_size));
+        GCS_SEND_TEXT(MAV_SEVERITY_ERROR, "AP_OSD: bad font size %u\n", unsigned(font_size));
         delete fd;
         return false;
     }
@@ -181,6 +190,7 @@ bool AP_OSD_MAX7456::update_font()
                 delete fd;
                 return false;
             }
+            updated_chars++;
         }
     }
     delete fd;
@@ -200,7 +210,7 @@ bool AP_OSD_MAX7456::check_font_char(uint8_t chr, const uint8_t* font_data)
         buffer_add_cmd(MAX7456ADD_CMDO, 0xFF);
     }
     _dev->get_semaphore()->take_blocking();
-    _dev->transfer_fullduplex(buffer, buffer_offset);
+    _dev->transfer(buffer, buffer_offset, buffer, buffer_offset);
     _dev->get_semaphore()->give();
 
     //skip response from MAX7456ADD_VM0/MAX7456ADD_CMAH...
@@ -272,6 +282,11 @@ void AP_OSD_MAX7456::buffer_add_cmd(uint8_t reg, uint8_t arg)
 //Thanks to betaflight for the max stall/reboot detection approach and ntsc/pal autodetection
 void AP_OSD_MAX7456::check_reinit()
 {
+#ifdef BOTOSD_ENABLED
+    if (!initialized) {
+        reinit();
+    }
+#else
     uint8_t check = 0xFF;
     _dev->get_semaphore()->take_blocking();
 
@@ -306,28 +321,34 @@ void AP_OSD_MAX7456::check_reinit()
         last_signal_check = now;
     }
     _dev->get_semaphore()->give();
+#endif
 }
 
 void AP_OSD_MAX7456::reinit()
 {
+#if !BOTOSD_ENABLED
     uint8_t sense;
+#endif
 
     //do not init MAX before camera power up correctly
     if (AP_HAL::millis() < 1500) {
         return;
     }
-
+#if !BOTOSD_ENABLED
     //check input signal format
     _dev->read_registers(MAX7456ADD_STAT, &sense, 1);
     if (VIN_IS_PAL(sense)) {
+#endif
         video_signal_reg = VIDEO_MODE_PAL | OSD_ENABLE;
         video_lines = video_lines_pal;
         _format = FORMAT_PAL;
+#if !BOTOSD_ENABLED
     } else {
         video_signal_reg = VIDEO_MODE_NTSC | OSD_ENABLE;
         video_lines = video_lines_ntsc;
         _format = FORMAT_NTSC;
     }
+#endif
 
     // set all rows to same character black/white level
     for (uint8_t x = 0; x < video_lines_pal; x++) {
